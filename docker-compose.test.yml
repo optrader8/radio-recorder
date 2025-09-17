@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: radio_recorder_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_pass
+
+  backend:
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://test_user:test_pass@postgres:5432/radio_recorder_test
+      - ENVIRONMENT=testing
+      - SECRET_KEY=test-secret-key
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        pytest --cov=app --cov-report=term-missing
+      "
+
+  # Disable frontend and other services for testing
+  frontend:
+    profiles:
+      - testing-disabled
+
+  nginx:
+    profiles:
+      - testing-disabled
+
+  celery-worker:
+    profiles:
+      - testing-disabled
+
+  celery-beat:
+    profiles:
+      - testing-disabled
