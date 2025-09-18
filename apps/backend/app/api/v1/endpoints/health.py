@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import redis.asyncio as redis
-from datetime import datetime
+from datetime import datetime, timezone
 import psutil
 import os
 
@@ -19,7 +19,7 @@ async def health_check():
     """Basic health check endpoint"""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT
     }
@@ -30,7 +30,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)):
     """Detailed health check with database and Redis connectivity"""
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,
         "services": {}

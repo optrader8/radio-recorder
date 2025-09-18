@@ -1,10 +1,13 @@
 from typing import List, Optional, Union
+
 from pydantic import AnyHttpUrl, EmailStr, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import secrets
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+
     # API Settings
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
@@ -68,10 +71,5 @@ class Settings(BaseSettings):
     # Superuser
     FIRST_SUPERUSER_EMAIL: Optional[EmailStr] = None
     FIRST_SUPERUSER_PASSWORD: Optional[str] = None
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-
 
 settings = Settings()

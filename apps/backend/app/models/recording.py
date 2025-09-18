@@ -1,18 +1,17 @@
 from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Text, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-import uuid
 
 from app.db.base import Base
+from app.db.types import JSON_TYPE, UUID_TYPE, generate_uuid
 
 
 class Recording(Base):
     __tablename__ = "recordings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    station_id = Column(UUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"), nullable=False)
-    schedule_id = Column(UUID(as_uuid=True), ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True)
+    id = Column(UUID_TYPE, primary_key=True, default=generate_uuid)
+    user_id = Column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    station_id = Column(UUID_TYPE, ForeignKey("radio_stations.id", ondelete="CASCADE"), nullable=False)
+    schedule_id = Column(UUID_TYPE, ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True)
 
     title = Column(String(255))
     file_path = Column(String(500))
@@ -26,7 +25,7 @@ class Recording(Base):
     started_at = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True))
     error_message = Column(Text)
-    metadata = Column(JSONB)
+    metadata_json = Column("metadata", JSON_TYPE)
 
     # Relationships
     user = relationship("User", back_populates="recordings")
