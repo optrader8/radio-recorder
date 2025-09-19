@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
@@ -12,9 +13,57 @@ from app.models.recording import Recording
 logger = get_logger(__name__)
 
 
-async def _simulate_ffmpeg(recording: Recording) -> None:
-    """Simulate an FFmpeg execution and update recording status."""
-    await asyncio.sleep(0.1)
+async def _record_with_streamlink(recording: Recording) -> None:
+    """Record stream using Streamlink + FFmpeg."""
+    try:
+        # Create output directory if it doesn't exist
+        output_path = Path(recording.file_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build Streamlink command
+        cmd = [
+            "streamlink",
+            recording.station.stream_url,
+            "best",
+            "--output", str(output_path),
+            "--force",
+            "--retry-streams", "5",
+            "--retry-max", "10",
+            "--stream-timeout", "60"
+        ]
+
+        # Add duration limit if specified
+        if recording.duration_seconds and recording.duration_seconds > 0:
+            cmd.extend([
+                "--ffmpeg-ffmpeg", f"-t {recording.duration_seconds}"
+            ])
+
+        logger.info(f"Starting recording with command: {' '.join(cmd)}")
+
+        # Execute Streamlink
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            logger.info(f"Recording completed successfully: {recording.id}")
+
+            # Update file size if file exists
+            if output_path.exists():
+                recording.file_size = output_path.stat().st_size
+                logger.info(f"Recorded file size: {recording.file_size} bytes")
+        else:
+            error_msg = stderr.decode() if stderr else "Unknown error"
+            logger.error(f"Streamlink failed: {error_msg}")
+            raise Exception(f"Streamlink recording failed: {error_msg}")
+
+    except Exception as e:
+        logger.exception(f"Recording failed for {recording.id}: {e}")
+        raise
 
 
 async def _run_recording(recording_id: str) -> str:
@@ -29,7 +78,7 @@ async def _run_recording(recording_id: str) -> str:
         await session.commit()
 
         try:
-            await _simulate_ffmpeg(recording)
+            await _record_with_streamlink(recording)
             recording.status = "completed"
             recording.completed_at = datetime.now(timezone.utc)
             await session.commit()
