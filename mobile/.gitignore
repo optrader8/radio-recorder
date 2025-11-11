@@ -1,0 +1,51 @@
+# Build files
+dist/
+build/
+.gradle/
+.idea/
+*.iml
+*.apk
+*.aar
+*.aab
+*.zip
+
+# Node
+node_modules/
+package-lock.json
+npm-debug.log
+
+# OS
+.DS_Store
+Thumbs.db
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Capacitor
+/.capacitor/
+ios/App/Pods/
+android/capacitor-cordova-plugins.json
+ios/App/ios.json
+
+# Environment
+.env
+.env.development
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Platform-specific
+ios/App/Podfile.lock
+android/gradlew
+android/.gradle
+
+# Generated
+coverage/
+dist/
