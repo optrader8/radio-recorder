@@ -21,6 +21,9 @@ function RootComponent() {
                   <Link to="/dashboard" className="hover:text-indigo-600">
                     Dashboard
                   </Link>
+                  <Link to="/radio-player" className="hover:text-indigo-600">
+                    라디오
+                  </Link>
                   <Link to="/schedules" className="hover:text-indigo-600">
                     Schedules
                   </Link>

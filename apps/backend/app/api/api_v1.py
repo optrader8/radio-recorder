@@ -8,8 +8,12 @@ from app.api.v1.endpoints import (
     auth,
     users,
     ai,
-    stats
+    stats,
+    playback,
+    webhooks,
+    converter
 )
+from app.api.endpoints import websocket
 
 api_router = APIRouter()
 
@@ -17,8 +21,14 @@ api_router = APIRouter()
 api_router.include_router(health.router, prefix="/health", tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(playback.router, prefix="/playback", tags=["playback"])
 api_router.include_router(recordings.router, prefix="/recordings", tags=["recordings"])
+api_router.include_router(webhooks.router, tags=["webhooks"])
+api_router.include_router(converter.router, tags=["converter"])
 api_router.include_router(schedules.router, prefix="/schedules", tags=["schedules"])
 api_router.include_router(files.router, prefix="/files", tags=["files"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(stats.router, prefix="/stats", tags=["statistics"])
+
+# Include WebSocket endpoints
+api_router.include_router(websocket.router, tags=["websocket"])
