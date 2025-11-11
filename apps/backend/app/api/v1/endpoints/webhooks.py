@@ -1,17 +1,20 @@
 """
-Webhook endpoints for event subscriptions
+Webhook endpoints for event subscriptions with database persistence
 """
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from uuid import UUID
 import httpx
 import asyncio
+from datetime import datetime
 
 from app.api.deps import get_current_active_user, get_db
 from app.models.user import User
 from app.services.event_bus import event_bus, EventType, Event
+from app.services.persistence_service import persistence_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +44,9 @@ class WebhookResponse(BaseModel):
     description: Optional[str]
     is_active: bool
     created_at: str
-
-
-# In-memory webhook store (in production, use database)
-webhooks: dict = {}
+    success_count: int = 0
+    error_count: int = 0
+    last_triggered_at: Optional[str] = None
 
 
 @router.post("/webhooks", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)
@@ -67,9 +69,6 @@ async def create_webhook(
     ```
     """
     try:
-        from uuid import uuid4
-        from datetime import datetime
-
         # Validate event types
         valid_types = {e.value for e in EventType}
         for event_type in webhook_in.event_types:
@@ -79,21 +78,17 @@ async def create_webhook(
                     detail=f"Invalid event type: {event_type}"
                 )
 
-        webhook_id = str(uuid4())
-        webhook = {
-            "id": webhook_id,
-            "user_id": str(current_user.id),
-            "url": str(webhook_in.url),
-            "event_types": webhook_in.event_types,
-            "description": webhook_in.description,
-            "is_active": True,
-            "created_at": datetime.utcnow().isoformat(),
-            "last_triggered": None,
-            "success_count": 0,
-            "error_count": 0,
-        }
+        # Save to database
+        webhook_id = await persistence_service.save_webhook(
+            db,
+            current_user.id,
+            str(webhook_in.url),
+            webhook_in.event_types,
+            webhook_in.description,
+        )
 
-        webhooks[webhook_id] = webhook
+        if not webhook_id:
+            raise HTTPException(status_code=500, detail="Failed to create webhook")
 
         # Subscribe to events
         for event_type_str in webhook_in.event_types:
@@ -102,8 +97,8 @@ async def create_webhook(
                 await event_bus.subscribe(
                     event_type,
                     str(current_user.id),
-                    lambda evt, url=str(webhook_in.url): asyncio.create_task(
-                        _trigger_webhook(url, evt, webhook_id)
+                    lambda evt, url=str(webhook_in.url), wid=webhook_id: asyncio.create_task(
+                        _trigger_webhook(url, evt, wid, db)
                     ),
                 )
             except ValueError:
@@ -112,12 +107,12 @@ async def create_webhook(
         logger.info(f"Webhook created: {webhook_id} for user {current_user.username}")
 
         return WebhookResponse(
-            id=webhook_id,
+            id=str(webhook_id),
             url=str(webhook_in.url),
             event_types=webhook_in.event_types,
             description=webhook_in.description,
             is_active=True,
-            created_at=webhook["created_at"],
+            created_at=datetime.utcnow().isoformat(),
         )
 
     except HTTPException:
@@ -134,24 +129,24 @@ async def list_webhooks(
 ) -> dict:
     """Get all webhooks for current user"""
     try:
-        user_webhooks = [
-            w for w in webhooks.values()
-            if w["user_id"] == str(current_user.id)
-        ]
+        webhooks = await persistence_service.list_webhooks(db, current_user.id)
 
         return {
             "webhooks": [
                 WebhookResponse(
-                    id=w["id"],
-                    url=w["url"],
-                    event_types=w["event_types"],
-                    description=w["description"],
-                    is_active=w["is_active"],
-                    created_at=w["created_at"],
+                    id=str(w.id),
+                    url=w.url,
+                    event_types=w.event_types,
+                    description=w.description,
+                    is_active=w.is_active,
+                    created_at=w.created_at.isoformat(),
+                    success_count=w.success_count,
+                    error_count=w.error_count,
+                    last_triggered_at=w.last_triggered_at.isoformat() if w.last_triggered_at else None,
                 )
-                for w in user_webhooks
+                for w in webhooks
             ],
-            "total": len(user_webhooks),
+            "total": len(webhooks),
         }
     except Exception as e:
         logger.error(f"Error listing webhooks: {e}")
@@ -166,26 +161,31 @@ async def get_webhook(
 ) -> dict:
     """Get webhook details"""
     try:
-        webhook = webhooks.get(webhook_id)
+        try:
+            wid = UUID(webhook_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid webhook ID")
+
+        webhook = await persistence_service.get_webhook(db, wid, current_user.id)
         if not webhook:
             raise HTTPException(status_code=404, detail="Webhook not found")
 
-        if webhook["user_id"] != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Access denied")
-
         return {
             "webhook": WebhookResponse(
-                id=webhook["id"],
-                url=webhook["url"],
-                event_types=webhook["event_types"],
-                description=webhook["description"],
-                is_active=webhook["is_active"],
-                created_at=webhook["created_at"],
+                id=str(webhook.id),
+                url=webhook.url,
+                event_types=webhook.event_types,
+                description=webhook.description,
+                is_active=webhook.is_active,
+                created_at=webhook.created_at.isoformat(),
+                success_count=webhook.success_count,
+                error_count=webhook.error_count,
+                last_triggered_at=webhook.last_triggered_at.isoformat() if webhook.last_triggered_at else None,
             ),
             "statistics": {
-                "success_count": webhook["success_count"],
-                "error_count": webhook["error_count"],
-                "last_triggered": webhook["last_triggered"],
+                "success_count": webhook.success_count,
+                "error_count": webhook.error_count,
+                "last_triggered": webhook.last_triggered_at.isoformat() if webhook.last_triggered_at else None,
             },
         }
     except HTTPException:
@@ -204,32 +204,36 @@ async def update_webhook(
 ) -> WebhookResponse:
     """Update webhook"""
     try:
-        webhook = webhooks.get(webhook_id)
+        try:
+            wid = UUID(webhook_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid webhook ID")
+
+        webhook = await persistence_service.update_webhook(
+            db,
+            wid,
+            current_user.id,
+            url=str(webhook_in.url) if webhook_in.url else None,
+            event_types=webhook_in.event_types,
+            description=webhook_in.description,
+            is_active=webhook_in.is_active,
+        )
+
         if not webhook:
             raise HTTPException(status_code=404, detail="Webhook not found")
 
-        if webhook["user_id"] != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        # Update fields
-        if webhook_in.url:
-            webhook["url"] = str(webhook_in.url)
-        if webhook_in.event_types:
-            webhook["event_types"] = webhook_in.event_types
-        if webhook_in.description is not None:
-            webhook["description"] = webhook_in.description
-        if webhook_in.is_active is not None:
-            webhook["is_active"] = webhook_in.is_active
-
-        logger.info(f"Webhook updated: {webhook_id}")
+        logger.info(f"Webhook updated: {wid}")
 
         return WebhookResponse(
-            id=webhook["id"],
-            url=webhook["url"],
-            event_types=webhook["event_types"],
-            description=webhook["description"],
-            is_active=webhook["is_active"],
-            created_at=webhook["created_at"],
+            id=str(webhook.id),
+            url=webhook.url,
+            event_types=webhook.event_types,
+            description=webhook.description,
+            is_active=webhook.is_active,
+            created_at=webhook.created_at.isoformat(),
+            success_count=webhook.success_count,
+            error_count=webhook.error_count,
+            last_triggered_at=webhook.last_triggered_at.isoformat() if webhook.last_triggered_at else None,
         )
 
     except HTTPException:
@@ -247,16 +251,16 @@ async def delete_webhook(
 ):
     """Delete webhook"""
     try:
-        webhook = webhooks.get(webhook_id)
-        if not webhook:
+        try:
+            wid = UUID(webhook_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid webhook ID")
+
+        success = await persistence_service.delete_webhook(db, wid, current_user.id)
+        if not success:
             raise HTTPException(status_code=404, detail="Webhook not found")
 
-        if webhook["user_id"] != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        del webhooks[webhook_id]
-        logger.info(f"Webhook deleted: {webhook_id}")
-
+        logger.info(f"Webhook deleted: {wid}")
         return {}
     except HTTPException:
         raise
@@ -273,18 +277,20 @@ async def test_webhook(
 ) -> dict:
     """Test webhook by sending a sample event"""
     try:
-        webhook = webhooks.get(webhook_id)
+        try:
+            wid = UUID(webhook_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid webhook ID")
+
+        webhook = await persistence_service.get_webhook(db, wid, current_user.id)
         if not webhook:
             raise HTTPException(status_code=404, detail="Webhook not found")
-
-        if webhook["user_id"] != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Access denied")
 
         # Create test event
         test_event = Event(
             type=EventType.SYSTEM_NOTIFICATION,
             user_id=str(current_user.id),
-            timestamp=__import__('datetime').datetime.utcnow(),
+            timestamp=datetime.utcnow(),
             data={
                 "test": True,
                 "message": "Webhook test event"
@@ -292,7 +298,7 @@ async def test_webhook(
         )
 
         # Trigger webhook
-        success = await _trigger_webhook(webhook["url"], test_event, webhook_id)
+        success = await _trigger_webhook(webhook.url, test_event, wid, db)
 
         return {
             "success": success,
@@ -314,17 +320,27 @@ async def get_event_history(
 ) -> dict:
     """Get recent event history for current user"""
     try:
-        history = event_bus.get_event_history(str(current_user.id), limit)
+        events = await persistence_service.get_event_logs(db, current_user.id, limit=limit)
         return {
-            "events": [e.to_dict() for e in history],
-            "total": len(history),
+            "events": [
+                {
+                    "id": str(e.id),
+                    "event_type": e.event_type,
+                    "resource_type": e.resource_type,
+                    "resource_id": str(e.resource_id) if e.resource_id else None,
+                    "data": e.data,
+                    "created_at": e.created_at.isoformat(),
+                }
+                for e in events
+            ],
+            "total": len(events),
         }
     except Exception as e:
         logger.error(f"Error getting event history: {e}")
         raise HTTPException(status_code=500, detail="Failed to get event history")
 
 
-async def _trigger_webhook(url: str, event: Event, webhook_id: str) -> bool:
+async def _trigger_webhook(url: str, event: Event, webhook_id: UUID, db: AsyncSession) -> bool:
     """Trigger a webhook with an event"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -336,13 +352,23 @@ async def _trigger_webhook(url: str, event: Event, webhook_id: str) -> bool:
 
             success = response.status_code in [200, 201, 202, 204]
 
-            # Update webhook statistics
-            if webhook_id in webhooks:
-                webhooks[webhook_id]["last_triggered"] = __import__('datetime').datetime.utcnow().isoformat()
-                if success:
-                    webhooks[webhook_id]["success_count"] += 1
-                else:
-                    webhooks[webhook_id]["error_count"] += 1
+            # Update webhook statistics in database
+            if success:
+                await persistence_service.update_webhook(
+                    db,
+                    webhook_id,
+                    event.user_id,
+                    success_count=db.query.count() + 1,
+                    last_triggered_at=datetime.utcnow(),
+                )
+            else:
+                await persistence_service.update_webhook(
+                    db,
+                    webhook_id,
+                    event.user_id,
+                    error_count=db.query.count() + 1,
+                    last_triggered_at=datetime.utcnow(),
+                )
 
             if success:
                 logger.debug(f"Webhook triggered successfully: {webhook_id}")
@@ -353,11 +379,7 @@ async def _trigger_webhook(url: str, event: Event, webhook_id: str) -> bool:
 
     except asyncio.TimeoutError:
         logger.error(f"Webhook timeout: {webhook_id}")
-        if webhook_id in webhooks:
-            webhooks[webhook_id]["error_count"] += 1
         return False
     except Exception as e:
         logger.error(f"Error triggering webhook {webhook_id}: {e}")
-        if webhook_id in webhooks:
-            webhooks[webhook_id]["error_count"] += 1
         return False

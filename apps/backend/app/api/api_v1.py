@@ -11,7 +11,8 @@ from app.api.v1.endpoints import (
     stats,
     playback,
     webhooks,
-    converter
+    converter,
+    analysis
 )
 from app.api.endpoints import websocket
 
@@ -25,6 +26,7 @@ api_router.include_router(playback.router, prefix="/playback", tags=["playback"]
 api_router.include_router(recordings.router, prefix="/recordings", tags=["recordings"])
 api_router.include_router(webhooks.router, tags=["webhooks"])
 api_router.include_router(converter.router, tags=["converter"])
+api_router.include_router(analysis.router, tags=["analysis"])
 api_router.include_router(schedules.router, prefix="/schedules", tags=["schedules"])
 api_router.include_router(files.router, prefix="/files", tags=["files"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
