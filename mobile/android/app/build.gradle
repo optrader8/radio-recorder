@@ -1,0 +1,87 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 33
+    defaultConfig {
+        applicationId "com.radiorecorder.app"
+        minSdkVersion 21
+        targetSdkVersion 33
+        versionCode 1
+        versionName "1.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables.useSupportLibrary = true
+
+        // Add build-time configuration
+        buildConfigField "String", "API_URL", '"http://localhost:8000"'
+        buildConfigField "boolean", "ENABLE_CRASH_REPORTING", "true"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField "String", "API_URL", '"https://api.radiorecorder.com"'
+        }
+        debug {
+            minifyEnabled false
+            buildConfigField "String", "API_URL", '"http://localhost:8000"'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    packagingOptions {
+        exclude 'META-INF/proguard/androidx-*.pro'
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    // Capacitor
+    implementation 'com.getcapacitor:capacitor-android:5.6.0'
+    implementation 'com.getcapacitor:capacitor-core:5.6.0'
+
+    // Capacitor Plugins
+    implementation 'com.getcapacitor.community:camera:5.6.0'
+    implementation 'com.getcapacitor.community:filesystem:5.6.0'
+    implementation 'com.getcapacitor.community:geolocation:5.6.0'
+    implementation 'com.getcapacitor.community:local-notifications:5.6.0'
+    implementation 'com.getcapacitor.community:device:5.6.0'
+    implementation 'com.getcapacitor.community:app:5.6.0'
+    implementation 'com.getcapacitor.community:network:5.6.0'
+    implementation 'com.getcapacitor.community:keyboard:5.6.0'
+
+    // AndroidX
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.core:core-splashscreen:1.0.1'
+    implementation 'androidx.webkitx:webkitx:1.7.0'
+
+    // Firebase (optional)
+    implementation 'com.google.firebase:firebase-core:21.1.1'
+    implementation 'com.google.firebase:firebase-messaging:23.2.1'
+    implementation 'com.google.firebase:firebase-analytics:21.3.0'
+
+    // OkHttp for networking
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+
+    // Retrofit for API calls
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
